@@ -1,0 +1,23 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1536665363404.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "353227032",
+    "id" : "23CF30DD",
+    "lastKnownWriteTime" : 1536667777,
+    "last_content_update" : 1536667777475,
+    "path" : "~/Github/SMAC-Group/fc2018/R/send_forecast.R",
+    "project_path" : "R/send_forecast.R",
+    "properties" : {
+        "cursorPosition" : "0,1",
+        "scrollLine" : "0",
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

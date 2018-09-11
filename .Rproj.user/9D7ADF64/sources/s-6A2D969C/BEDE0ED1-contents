@@ -1,0 +1,353 @@
+# load package
+suppressPackageStartupMessages(library(gmailr))
+require(anytime)
+
+# use credentials (run prior to any other function)
+use_secret_file("forecasting-unil-2018.json")
+
+# function to send one forecast (for students only)
+send_forecast <- function(group, forecast, key, date = paste(Sys.Date()+1)){
+  # prior verifications
+  if(!is.numeric(forecast)){stop("Your forecast is not a number, please enter a number.")}
+  if(!is.numeric(group)){stop("Your group is not a number, please enter a number.")}
+  if(date <= Sys.Date()){stop("Forecasting is about the future, please check the date you entered. The format is YYYY-MM-DD.")}
+  
+  # sending the message
+  send_message(
+    mime(
+      To = "unil.forecasting.instructor@gmail.com",
+      From = paste0("unil.forecasting.group",group,"@gmail.com"),
+      Subject = paste0("[Forecasting Unil 2018] Group ", group),
+      body = paste(key, date, forecast, sep = ";")
+      )
+    )
+}
+
+# Here I assume that we run get_forecast1() first, so students have a feedback on what they sent,
+# then we run get_forecast2() to obtain the final forecasts.
+
+# function to receive the forecasts and feedback errors (for instructors only)
+get_forecast1 <- function(group_keys, my_path, competition_number){
+  # read the current forecast db
+  load(paste0(my_path,"db_forecast_",competition_number,".rda"))
+  
+  # create a backup file
+  file.copy(from = paste0(my_path,"db_forecast_",competition_number,".rda"), 
+            to = paste0(my_path,"db_forecast_",competition_number,"_backup_",Sys.Date(),".rda"))
+  
+  # number of groups
+  ng <- length(group_keys)
+  
+  tot_msg <- 0L
+  
+  # retrieve message by group
+  for(i in seq_len(ng)){
+    # retrieve all messages
+    sys_time <- Sys.time()
+    mes <- messages(search = paste0("[Forecasting Unil 2018] Group ", i), 
+                    include_spam_trash = T)[[1]]$messages
+    
+    # total number of messages
+    nm <- length(mes)
+    tot_msg <- tot_msg + nm
+    if(nm == 0){next}
+    
+    msg_group <- data.frame(
+      epoch = rep(NA,nm),
+      key = rep(NA,nm),
+      forecast = rep(NA,nm),
+      date = rep(NA,nm),
+      other = rep(NA,nm),
+      error = rep(FALSE,nm)
+    )
+    
+    # extract info by message
+    for(j in seq_len(nm)){
+      id_msg <- mes[[j]]$id
+      msg <- message(id_msg)
+      msg_group[j,1] <- msg$internalDate
+      msg_content <- unlist(strsplit(msg$snippet,";"))
+      
+      if(length(msg_content) != 3){
+        msg_group[j,5] <- "body-error"
+        msg_group[j,6] <- TRUE
+      }else{
+        if(msg_content[1] != group_keys[i]){
+          msg_group[j,2] <- "key-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,2] <- "ok"
+        }
+        if(msg_content[2] <= Sys.Date()){
+          msg_group[j,4] <- "date-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,4] <- msg_content[2]
+        }
+        if(is.na(as.numeric(msg_content[3]))){
+          msg_group[j,3] <- "forecast-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,3] <- as.numeric(msg_content[3])
+        }
+      }
+      
+      # thrash the message
+      trash_message(id_msg)
+    }
+    
+    # reply to the group
+    # errors
+    tot_err <- sum(msg_group$error)
+    b_err <- sum(msg_group$other == "body-error",na.rm=T)
+    k_err <- sum(msg_group$key == "key-error")
+    d_err <- sum(msg_group$date == "date-error")
+    f_err <- sum(msg_group$forecast == "forecast-error")
+    
+    msg_tot_err <- sprintf("I received %i messages from your group, %i contained errors which are detailed now.\n",nm, tot_err)
+    
+    msg_b_err <- sprintf("You sent me %i messages out of %i with an error in the body of the text message. An error is generated for example if you send me an email. Please, send me only your forecast with the 'send_forecast()' R function to this address.\n", b_err, nm)
+    
+    msg_k_err <- sprintf("The key you sent me mismatches for %i messages out of %i. Check your key and send me the email again if necessary.\n", k_err, nm)
+    
+    msg_d_err <- sprintf("For %i messages out of %i, I found an error with the date. Please verify that you sent the date with the format 'YYYY-MM-DD' and that you forecast the future!\n", d_err, nm)
+    
+    msg_f_err <- sprintf("For %i message out of %i, the forecast you sent me is not a number. Please verify again.\n", f_err, nm)
+    
+    msg_err <- list(msg_b_err,msg_k_err,msg_d_err,msg_f_err)
+    
+    msg_body_error <- NULL
+    if(tot_err>0){
+      id_list_err <- c(if(b_err>0){TRUE}else{FALSE},if(k_err>0){TRUE}else{FALSE},
+                       if(d_err>0){TRUE}else{FALSE},if(f_err>0){TRUE}else{FALSE})
+      msg_body_error <- paste(msg_tot_err,paste(msg_err[id_list_err], collapse = " "), "\n", collapse = " ")
+    }
+    
+    # new forecasts
+    clean_msg_group <- msg_group[!msg_group$error,c(1,3,4)]
+    n_clean <- nrow(clean_msg_group)
+    dates_clean <- unique(clean_msg_group$date)
+    new_forecast <- rep(NA,length(dates_clean))
+    for(j in seq_along(dates_clean)){
+      id_date <- clean_msg_group$date==dates_clean[j]
+      new_forecast[j] <- as.numeric(clean_msg_group[id_date,][which.max(clean_msg_group[id_date,]$epoch),2])
+      db_forecast[i,dates_clean[j]] <- new_forecast[j]
+    }
+    
+    msg_new_forecast <- sprintf("New forecast value (rounded): %.2f for the date: %s.\n", new_forecast, dates_clean)
+    msg_body_forecast <- NULL
+    if(!is.null(n_clean) && n_clean > 0){
+      msg_body_forecast <- paste("Since last time, I received the following new value(s).\n",msg_new_forecast,
+                                 "In the case you sent multiple values for the same date, only the latest you sent me is considered.\n",
+                                 "Please note that the messages you send are automatically destroyed once read.\n\n",
+                                 collapse = " ")
+    }
+    
+    # reply
+    msg_header <- sprintf("Dear Group %i,\n\n", i)
+    msg_body1 <- sprintf("I checked my emails precisely at %s.\n\n", sys_time)
+    msg_footer <- "If you encounter any problems, please contact me via my @unil address.\n\n Good luck,\n\n Samuel Orso"
+    msg_body2 <- "You have until 11pm to make your ultimate forecast for tomorrow! No changes will be accepted beyond this point.\n"
+    
+    msg_reply <- paste(msg_header, msg_body1, msg_body_forecast, msg_body_error, msg_body2, msg_footer, collapse = " ")
+    
+    send_message(
+      mime(
+        To = paste0("unil.forecasting.group",i,"@gmail.com"),
+        From = "unil.forecasting.instructor@gmail.com",
+        Subject = paste0("[Forecasting Unil 2018] Group ", i),
+        body = msg_reply
+      )
+    )
+    
+  }
+  
+  # write the new forecast
+  save(db_forecast, file = paste0(my_path,"db_forecast_",competition_number,".rda"))
+
+  return(sprintf("Total messages treated: %i",tot_msg))
+}
+
+# function to receive the modification of the forecasts and inform the students of their registered values (for instructors only)
+get_forecast2 <- function(group_keys, my_path, competition_number){
+  # read the current forecast db
+  load(paste0(my_path,"db_forecast_",competition_number,".rda"))
+  
+  # create a backup file
+  file.copy(from = paste0(my_path,"db_forecast_",competition_number,".rda"), 
+            to = paste0(my_path,"db_forecast_",competition_number,"_backup_",Sys.Date(),"_2.rda"))
+  
+  # number of groups
+  ng <- length(group_keys)
+  
+  tot_msg <- 0L
+  
+  # retrieve message by group
+  for(i in seq_len(ng)){
+    # retrieve all messages
+    sys_time <- Sys.time()
+    mes <- messages(search = paste0("[Forecasting Unil 2018] Group ", i), 
+                    include_spam_trash = T)[[1]]$messages
+    
+    # total number of messages
+    nm <- length(mes)
+    tot_msg <- tot_msg + nm
+    if(nm == 0){next}
+    
+    msg_group <- data.frame(
+      epoch = rep(NA,nm),
+      key = rep(NA,nm),
+      forecast = rep(NA,nm),
+      date = rep(NA,nm),
+      other = rep(NA,nm),
+      error = rep(FALSE,nm)
+    )
+    
+    # extract info by message
+    for(j in seq_len(nm)){
+      id_msg <- mes[[j]]$id
+      msg <- message(id_msg)
+      msg_group[j,1] <- msg$internalDate
+      msg_content <- unlist(strsplit(msg$snippet,";"))
+      
+      if(length(msg_content) != 3){
+        msg_group[j,5] <- "body-error"
+        msg_group[j,6] <- TRUE
+      }else{
+        if(msg_content[1] != group_keys[i]){
+          msg_group[j,2] <- "key-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,2] <- "ok"
+        }
+        if(msg_content[2] <= Sys.Date()){
+          msg_group[j,4] <- "date-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,4] <- msg_content[2]
+        }
+        if(is.na(as.numeric(msg_content[3]))){
+          msg_group[j,3] <- "forecast-error"
+          msg_group[j,6] <- TRUE
+        }else{
+          msg_group[j,3] <- as.numeric(msg_content[3])
+        }
+      }
+      
+      # thrash the message
+      trash_message(id_msg)
+    }
+    
+    # reply to the group
+    # new forecasts
+    clean_msg_group <- msg_group[!msg_group$error,c(1,3,4)]
+    n_clean <- nrow(clean_msg_group)
+    dates_clean <- unique(clean_msg_group$date)
+    new_forecast <- rep(NA,length(dates_clean))
+    for(j in seq_along(dates_clean)){
+      id_date <- clean_msg_group$date==dates_clean[j]
+      new_forecast[j] <- as.numeric(clean_msg_group[id_date,][which.max(clean_msg_group[id_date,]$epoch),2])
+      db_forecast[i,dates_clean[j]] <- new_forecast[j]
+    }
+    
+    msg_new_forecast <- sprintf("New forecast value (rounded): %.2f for the date: %s.\n", new_forecast, dates_clean)
+    msg_body_forecast <- NULL
+    if(!is.null(n_clean) && n_clean > 0){
+      msg_body_forecast <- paste("Since last message, I received the following new value(s).\n",msg_new_forecast,
+                                 "Recall that in the case you sent multiple values for the same date, only the latest you sent me is considered.\n\n",
+                                 "Please note that the messages you send are automatically destroyed once read.\n\n",
+                                 collapse = " ")
+    }else{
+      msg_body_forecast <- "No forecasts were added since last message."
+    }
+    
+    # reply
+    msg_header <- sprintf("Dear Group %i,\n\n", i)
+    msg_body1 <- sprintf("The time is over for tomorrow's forecast. I last checked my emails at precisely %s.\n\n", sys_time)
+    msg_footer <- "If you encounter any problems, please contact me via my @unil address.\n\n Good luck,\n\n Samuel Orso"
+    
+    remaining_dates <- colnames(db_forecast)[colnames(db_forecast) > Sys.Date() + 1]
+    remaining_forecast <- db_forecast[i,remaining_dates]
+    id_na <- which(is.na(remaining_forecast))
+    
+    if(length(id_na) != length(remaining_forecast)){
+      msg_forecast2 <- paste(sprintf("Your forecast for tomorrow is: %.2f (no modification possible!).\n", 
+                                     db_forecast[i,paste(Sys.Date()+1)]),
+                             "The forecasts you sent me already for future dates are:\n",
+                             sprintf("%.2f for the date %s\n", remaining_forecast[-id_na], remaining_dates[-id_na]),
+                             collapse = " ")
+    }else{
+      msg_forecast2 <- paste(sprintf("Your forecast for tomorrow is: %.2f (no modification possible!).\n", 
+                                     db_forecast[i,paste(Sys.Date()+1)]),
+                             "You have no forecast registered for further dates. Do not forget to send them to me in due time.\n",
+                             collapse = " ")
+    }
+    
+    msg_reply <- paste(msg_header, msg_body1, msg_body_forecast, msg_body_forecast2, msg_footer, collapse = " ")
+    
+    send_message(
+      mime(
+        To = paste0("unil.forecasting.group",i,"@gmail.com"),
+        From = "unil.forecasting.instructor@gmail.com",
+        Subject = paste0("[Forecasting Unil 2018] Group ", i),
+        body = msg_reply
+      )
+    )
+    
+  }
+  
+  # write the new forecast
+  save(db_forecast, file = paste0(my_path,"db_forecast_",competition_number,".rda"))
+  
+  return(sprintf("Total messages treated: %i",tot_msg))
+}
+
+# send points (for instructors only)
+# here I assume the points variate between [-1,2]
+send_points <- function(points_by_group, total_by_group){
+  # number of groups
+  ng <- ncol(points_by_group)
+  
+  for(i in seq_len(ng)){
+    pt_obtained <- points_by_group[i]
+    
+    # in case no prediction has been made
+    if(is.na(pt_obtained)){
+      pt_obtained = 0
+    }
+    
+    msg_header <- sprintf("Dear Group %i,\n\n", i)
+    msg_body1 <- sprintf("You obtained %.2f points for %s forecast. ", pt_obtained, Sys.Date())
+    
+    # humor message
+    if(pt_obtained <= 0){
+      msg_body2 <- "What happened!? You can do better! Keep trying and do not hesitate to use Piazza for your questions.\n\n"
+    }
+    if(0 < pt_obtained && pt_obtained <= .5){
+      msg_body2 <- "Not bad! I am sure you can improve for tomorrow.\n\n"
+    }
+    if(.5 < pt_obtained && pt_obtained <= 1){
+      msg_body2 <- "Congratulation! You hit a nice score! Keep the good work.\n\n"
+    }
+    if(1 < pt_obtained && pt_obtained <= 1.5){
+      msg_body2 <- "Wow! I am impressed! Excellent work for today.\n\n"
+    }
+    if(pt_obtained > 1.5){
+      msg_body2 <- "That's awesome! Congratulations! You have a gift for forecasting.\n\n"
+    }
+    
+    msg_body3 <- sprintf("You have reached a total of %.2f points.\n", total_by_group[i])
+    msg_footer <- "Keep the good work,\n\n Samuel Orso"
+    
+    msg_reply <- paste(msg_header, msg_body1, msg_body2, msg_body3, msg_footer, collapse = " ")
+    
+    send_message(
+      mime(
+        To = paste0("unil.forecasting.group",i,"@gmail.com"),
+        From = "unil.forecasting.instructor@gmail.com",
+        Subject = paste0("[Forecasting Unil 2018] Group ", i),
+        body = msg_reply
+      )
+    )
+  }
+}
