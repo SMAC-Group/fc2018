@@ -13,3 +13,4 @@ Imports:
   fpp2,
   devtools,
   gmailr
+RoxygenNote: 6.1.0
