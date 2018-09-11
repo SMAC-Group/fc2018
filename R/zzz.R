@@ -7,6 +7,15 @@
 
 # Use the downloaded JSON file as input to use_secret_file(), prior to other gmailr calls.
 .onLoad <- function(libname, pkgname) {
-  gmailr::use_secret_file(paste0(getwd(),"/R/forecasting-unil-2018.json"))
+  pkg_path <- .libPaths()
+  if (length(pkg_path) == 1) {
+    gmailr::use_secret_file(paste0(pkg_path,"/fc2018/data/forecasting-unil-2018.json"))
+  } else {
+    for(i in seq_along(pkg_path)) {
+      try(suppressWarnings(gmailr::use_secret_file(
+        paste0(pkg_path[i],"/fc2018/data/forecasting-unil-2018.json"))), silent=T)
+    }
+  }
+
 }
 
