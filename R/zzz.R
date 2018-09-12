@@ -3,6 +3,7 @@
   packageStartupMessage("Welcome to Forecasting class!")
   suppressPackageStartupMessages(require(gmailr))
   suppressPackageStartupMessages(require(fpp2))
+  suppressPackageStartupMessages(require(cranlogs))
 }
 
 # Use the downloaded JSON file as input to use_secret_file(), prior to other gmailr calls.
@@ -16,6 +17,5 @@
         paste0(pkg_path[i],"/fc2018/data/forecasting-unil-2018.json"))), silent=T)
     }
   }
-
 }
 

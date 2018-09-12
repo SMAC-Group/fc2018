@@ -12,5 +12,6 @@ LazyData: true
 Imports: 
   fpp2,
   devtools,
-  gmailr
+  gmailr,
+  cranlogs
 RoxygenNote: 6.1.0
