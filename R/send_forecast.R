@@ -7,8 +7,12 @@
 send_forecast <- function(group, forecast, key, date = paste(Sys.Date()+1)){
   # prior verifications
   if(!is.numeric(forecast)){stop("Your forecast is not a number, please enter a number.")}
-  if(!is.numeric(group)){stop("Your group is not a number, please enter a number.")}
-  if(date <= Sys.Date()){stop("Forecasting is about the future, please check the date you entered. The format is YYYY-MM-DD.")}
+  if(!is.numeric(group) && group != ".instructor") {
+    stop("Your group is not a number, please enter a number.")
+    }
+  if(date <= Sys.Date()) {
+    stop("Forecasting is about the future, please check the date you entered. The format is YYYY-MM-DD.")
+    }
 
   # sending the message
   send_message(
